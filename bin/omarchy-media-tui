@@ -2,7 +2,16 @@
 set -u
 
 player=playerctld
-screen_lines=15
+screen_lines=12
+
+reset=$'\033[0m'
+muted=$'\033[38;5;244m'
+label=$'\033[38;5;109m'
+accent=$'\033[38;5;141m'
+good=$'\033[38;5;120m'
+warn=$'\033[38;5;215m'
+bar_on=$'\033[38;5;81m'
+bar_off=$'\033[38;5;238m'
 
 cleanup() {
   printf '\033[?25h\033[?1049l'
@@ -39,29 +48,34 @@ fmt_time() {
 }
 
 progress_bar() {
-  local pos="${1:-0}" length="${2:-0}" width=34 filled=0
-  local bar="["
+  local pos="${1:-0}" length="${2:-0}" bar_width=24 filled=0
+  local bar="${muted}[${reset}"
   if (( length > 0 )); then
-    filled=$((pos * width / length))
+    filled=$((pos * bar_width / length))
   fi
 
-  for ((i = 0; i < width; i++)); do
+  for ((i = 0; i < bar_width; i++)); do
     if (( i < filled )); then
-      bar+="="
+      bar+="${bar_on}=${reset}"
     elif (( i == filled )); then
-      bar+=">"
+      bar+="${accent}>${reset}"
     else
-      bar+=" "
+      bar+="${bar_off}-${reset}"
     fi
   done
-  bar+="]"
+  bar+="${muted}]${reset}"
   printf "%s" "$bar"
 }
 
 append_line() {
   local text="${1:-}"
-  printf -v frame "%s%-64.64s\n" "$frame" "$text"
+  printf -v frame "%s\033[2K%s\n" "$frame" "$text"
   ((lines++))
+}
+
+field() {
+  local name="$1" value="${2:-unknown}"
+  printf "%b%-7s%b %s" "$label" "$name:" "$reset" "$value"
 }
 
 draw() {
@@ -77,27 +91,31 @@ draw() {
   length="$(length_seconds)"
   vol="$(playerctl -p "$player" volume 2>/dev/null || true)"
 
-  append_line "Media"
-  append_line "------------------------------------------------------------"
+  append_line "${accent}Media${reset} ${muted}playerctl / playerctld${reset}"
+  append_line "${muted}----------------------------------------------------${reset}"
 
   if [[ "$state" == "No player" ]]; then
-    append_line "No MPRIS player found."
+    append_line "${warn}No MPRIS player found.${reset}"
     append_line ""
-    append_line "Open Spotify, YouTube, VLC, mpv-mpris, etc. and try again."
+    append_line "${muted}Open Spotify, YouTube, VLC, mpv-mpris, etc.${reset}"
   else
-    append_line "$(printf "%-9s %s" "Player:" "${player_name:-unknown}")"
-    append_line "$(printf "%-9s %s" "Status:" "$state")"
-    append_line "$(printf "%-9s %s" "Track:" "${title:-unknown}")"
-    append_line "$(printf "%-9s %s" "Artist:" "${artist:-unknown}")"
-    [[ -n "$album" ]] && append_line "$(printf "%-9s %s" "Album:" "$album")"
+    if [[ "$state" == "Playing" ]]; then
+      append_line "$(field "Status" "${good}Playing${reset}")"
+    else
+      append_line "$(field "Status" "${warn}${state}${reset}")"
+    fi
+    append_line "$(field "Track" "${title:-unknown}")"
+    append_line "$(field "Artist" "${artist:-unknown}")"
+    [[ -n "$album" ]] && append_line "$(field "Album" "$album")"
+    append_line "$(field "Player" "${player_name:-unknown}")"
     append_line ""
     progress="$(progress_bar "${pos:-0}" "${length:-0}")"
-    append_line "$progress $(fmt_time "${pos:-0}") / $(fmt_time "${length:-0}")"
-    [[ -n "$vol" ]] && append_line "Volume: $(awk -v v="$vol" 'BEGIN { printf "%d", v * 100 }')%"
+    append_line "$progress  ${muted}$(fmt_time "${pos:-0}") / $(fmt_time "${length:-0}")${reset}"
+    [[ -n "$vol" ]] && append_line "$(field "Volume" "$(awk -v v="$vol" 'BEGIN { printf "%d", v * 100 }')%")"
   fi
 
   append_line ""
-  append_line "space play/pause   h/l seek   j/k volume   n/p track   s stop   q close"
+  append_line "${muted}space play/pause  h/l seek  j/k vol  n/p track  q close${reset}"
 
   while (( lines < screen_lines )); do
     append_line ""

@@ -4,6 +4,6 @@ set -euo pipefail
 exec setsid uwsm-app -- alacritty \
   --class org.omarchy.media-popup \
   --title "Media" \
-  -o window.dimensions.columns=64 \
-  -o window.dimensions.lines=15 \
+  -o window.dimensions.columns=54 \
+  -o window.dimensions.lines=12 \
   -e omarchy-media-tui
