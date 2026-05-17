@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -u
+
+player=playerctld
+screen_lines=15
+
+cleanup() {
+  printf '\033[?25h\033[?1049l'
+}
+
+trap cleanup EXIT INT TERM
+printf '\033[?1049h\033[?25l'
+
+metadata() {
+  playerctl -p "$player" metadata "$1" 2>/dev/null || true
+}
+
+status() {
+  playerctl -p "$player" status 2>/dev/null || echo "No player"
+}
+
+position_seconds() {
+  playerctl -p "$player" position 2>/dev/null | cut -d. -f1
+}
+
+length_seconds() {
+  local length
+  length="$(metadata mpris:length)"
+  if [[ "$length" =~ ^[0-9]+$ ]]; then
+    echo $((length / 1000000))
+  else
+    echo 0
+  fi
+}
+
+fmt_time() {
+  local total="${1:-0}"
+  printf "%02d:%02d" "$((total / 60))" "$((total % 60))"
+}
+
+progress_bar() {
+  local pos="${1:-0}" length="${2:-0}" width=34 filled=0
+  local bar="["
+  if (( length > 0 )); then
+    filled=$((pos * width / length))
+  fi
+
+  for ((i = 0; i < width; i++)); do
+    if (( i < filled )); then
+      bar+="="
+    elif (( i == filled )); then
+      bar+=">"
+    else
+      bar+=" "
+    fi
+  done
+  bar+="]"
+  printf "%s" "$bar"
+}
+
+append_line() {
+  local text="${1:-}"
+  printf -v frame "%s%-64.64s\n" "$frame" "$text"
+  ((lines++))
+}
+
+draw() {
+  local state artist title album player_name pos length vol
+  local lines=0 frame="" progress=""
+
+  state="$(status)"
+  artist="$(metadata artist)"
+  title="$(metadata title)"
+  album="$(metadata album)"
+  player_name="$(playerctl -p "$player" -f '{{playerName}}' metadata 2>/dev/null || true)"
+  pos="$(position_seconds)"
+  length="$(length_seconds)"
+  vol="$(playerctl -p "$player" volume 2>/dev/null || true)"
+
+  append_line "Media"
+  append_line "------------------------------------------------------------"
+
+  if [[ "$state" == "No player" ]]; then
+    append_line "No MPRIS player found."
+    append_line ""
+    append_line "Open Spotify, YouTube, VLC, mpv-mpris, etc. and try again."
+  else
+    append_line "$(printf "%-9s %s" "Player:" "${player_name:-unknown}")"
+    append_line "$(printf "%-9s %s" "Status:" "$state")"
+    append_line "$(printf "%-9s %s" "Track:" "${title:-unknown}")"
+    append_line "$(printf "%-9s %s" "Artist:" "${artist:-unknown}")"
+    [[ -n "$album" ]] && append_line "$(printf "%-9s %s" "Album:" "$album")"
+    append_line ""
+    progress="$(progress_bar "${pos:-0}" "${length:-0}")"
+    append_line "$progress $(fmt_time "${pos:-0}") / $(fmt_time "${length:-0}")"
+    [[ -n "$vol" ]] && append_line "Volume: $(awk -v v="$vol" 'BEGIN { printf "%d", v * 100 }')%"
+  fi
+
+  append_line ""
+  append_line "space play/pause   h/l seek   j/k volume   n/p track   s stop   q close"
+
+  while (( lines < screen_lines )); do
+    append_line ""
+  done
+
+  printf '\033[H%s' "$frame"
+}
+
+while true; do
+  draw
+  IFS= read -rsn1 -t 1 key || key=""
+
+  case "$key" in
+    q) break ;;
+    " ") playerctl -p "$player" play-pause >/dev/null 2>&1 || true ;;
+    n) playerctl -p "$player" next >/dev/null 2>&1 || true ;;
+    p) playerctl -p "$player" previous >/dev/null 2>&1 || true ;;
+    s) playerctl -p "$player" stop >/dev/null 2>&1 || true ;;
+    h) playerctl -p "$player" position 10- >/dev/null 2>&1 || true ;;
+    l) playerctl -p "$player" position 10+ >/dev/null 2>&1 || true ;;
+    j) playerctl -p "$player" volume 0.05- >/dev/null 2>&1 || true ;;
+    k) playerctl -p "$player" volume 0.05+ >/dev/null 2>&1 || true ;;
+  esac
+done

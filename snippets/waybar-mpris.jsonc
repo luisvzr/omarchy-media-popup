@@ -1,0 +1,21 @@
+// Add "mpris" to one of your Waybar module arrays, for example:
+// "modules-center": ["clock", "mpris", "custom/weather", ...]
+
+"mpris": {
+  "player": "playerctld",
+  "format": "{status_icon} {artist} - {title}",
+  "format-paused": "{status_icon} {artist} - {title}",
+  "format-stopped": "",
+  "status-icons": {
+    "playing": "▶",
+    "paused": "⏸",
+    "stopped": "⏹"
+  },
+  "max-length": 42,
+  "tooltip-format": "{player}\n{artist} - {title}\n{album}\n\nLeft: controls  Middle: play/pause  Scroll: volume",
+  "on-click": "omarchy-launch-media-tui",
+  "on-click-middle": "playerctl -p playerctld play-pause",
+  "on-click-right": "playerctl -p playerctld next",
+  "on-scroll-up": "playerctl -p playerctld volume 0.05+",
+  "on-scroll-down": "playerctl -p playerctld volume 0.05-"
+}
