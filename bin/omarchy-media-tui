@@ -2,7 +2,11 @@
 set -u
 
 player=playerctld
-screen_lines=12
+screen_lines=13
+art_cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-media-popup"
+art_place="16x8@43x2"
+current_art_url=""
+saved_stty=""
 
 reset=$'\033[0m'
 muted=$'\033[38;5;244m'
@@ -14,14 +18,63 @@ bar_on=$'\033[38;5;81m'
 bar_off=$'\033[38;5;238m'
 
 cleanup() {
-  printf '\033[?25h\033[?1049l'
+  [[ -n "$saved_stty" ]] && stty "$saved_stty" 2>/dev/null || true
+  printf '\033[?1000l\033[?1006l\033[?25h\033[?1049l'
 }
 
 trap cleanup EXIT INT TERM
-printf '\033[?1049h\033[?25l'
+saved_stty="$(stty -g 2>/dev/null || true)"
+stty -echo -icanon min 0 time 0 2>/dev/null || true
+printf '\033[?1049h\033[?25l\033[?1000h\033[?1006h'
 
 metadata() {
   playerctl -p "$player" metadata "$1" 2>/dev/null || true
+}
+
+cache_key() {
+  printf "%s" "$1" | sha1sum | awk '{print $1}'
+}
+
+art_source() {
+  local art_url="$1" key source
+
+  [[ -n "$art_url" ]] || return 1
+  mkdir -p "$art_cache_dir"
+
+  if [[ "$art_url" == file://* ]]; then
+    printf "%s" "${art_url#file://}"
+    return 0
+  fi
+
+  if [[ "$art_url" =~ ^https?:// ]]; then
+    key="$(cache_key "$art_url")"
+    source="$art_cache_dir/$key.img"
+    if [[ ! -s "$source" ]]; then
+      curl -fsSL --max-time 4 "$art_url" -o "$source" 2>/dev/null || return 1
+    fi
+    printf "%s" "$source"
+    return 0
+  fi
+
+  [[ -f "$art_url" ]] || return 1
+  printf "%s" "$art_url"
+}
+
+draw_art() {
+  local art_url="$1" source
+
+  [[ "$art_url" != "$current_art_url" ]] || return 0
+  current_art_url="$art_url"
+
+  source="$(art_source "$art_url")" || return 0
+
+  if command -v kitten >/dev/null 2>&1; then
+    kitten icat --clear --silent 2>/dev/null || true
+    kitten icat --silent --transfer-mode=file --stdin=no --scale-up --align=center --place "$art_place" "$source" 2>/dev/null || true
+  else
+    kitty +kitten icat --clear --silent 2>/dev/null || true
+    kitty +kitten icat --silent --transfer-mode=file --stdin=no --scale-up --align=center --place "$art_place" "$source" 2>/dev/null || true
+  fi
 }
 
 status() {
@@ -48,7 +101,7 @@ fmt_time() {
 }
 
 progress_bar() {
-  local pos="${1:-0}" length="${2:-0}" bar_width=24 filled=0
+  local pos="${1:-0}" length="${2:-0}" bar_width=18 filled=0
   local bar="${muted}[${reset}"
   if (( length > 0 )); then
     filled=$((pos * bar_width / length))
@@ -69,30 +122,31 @@ progress_bar() {
 
 append_line() {
   local text="${1:-}"
-  printf -v frame "%s\033[2K%s\n" "$frame" "$text"
+  printf -v frame "%s\033[1G%s\n" "$frame" "$text"
   ((lines++))
 }
 
 field() {
   local name="$1" value="${2:-unknown}"
-  printf "%b%-7s%b %s" "$label" "$name:" "$reset" "$value"
+  printf "%b%-7s%b %.24s" "$label" "$name:" "$reset" "$value"
 }
 
 draw() {
-  local state artist title album player_name pos length vol
+  local state artist title album player_name pos length vol art_url
   local lines=0 frame="" progress=""
 
   state="$(status)"
   artist="$(metadata artist)"
   title="$(metadata title)"
   album="$(metadata album)"
+  art_url="$(metadata mpris:artUrl)"
   player_name="$(playerctl -p "$player" -f '{{playerName}}' metadata 2>/dev/null || true)"
   pos="$(position_seconds)"
   length="$(length_seconds)"
   vol="$(playerctl -p "$player" volume 2>/dev/null || true)"
 
   append_line "${accent}Media${reset} ${muted}playerctl / playerctld${reset}"
-  append_line "${muted}----------------------------------------------------${reset}"
+  append_line "${muted}-------------------------------------${reset}"
 
   if [[ "$state" == "No player" ]]; then
     append_line "${warn}No MPRIS player found.${reset}"
@@ -122,11 +176,25 @@ draw() {
   done
 
   printf '\033[H%s' "$frame"
+  draw_art "$art_url"
 }
 
 while true; do
   draw
   IFS= read -rsn1 -t 1 key || key=""
+
+  if [[ "$key" == $'\033' ]]; then
+    rest=""
+    while IFS= read -rsn1 -t 0.02 char; do
+      rest+="$char"
+      [[ "$char" == "M" || "$char" == "m" ]] && break
+    done
+    case "$rest" in
+      "[<64;"*"M") playerctl -p "$player" volume 0.05- >/dev/null 2>&1 || true ;;
+      "[<65;"*"M") playerctl -p "$player" volume 0.05+ >/dev/null 2>&1 || true ;;
+    esac
+    continue
+  fi
 
   case "$key" in
     q) break ;;
