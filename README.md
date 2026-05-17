@@ -10,7 +10,8 @@ It adds a Waybar MPRIS item with hover metadata and click actions, plus a floati
 - Waybar with the MPRIS module
 - `playerctl`
 - `playerctld`
-- `alacritty`
+- `kitty`
+- `curl`
 
 ## Install
 
